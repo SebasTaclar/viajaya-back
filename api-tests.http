@@ -1,0 +1,537 @@
+@baseUrl = http://localhost:7071/api
+@superadminToken =
+@adminToken =
+@viajeroToken =
+
+# ==========================================================
+# VIAJAYA - API Tests
+# ==========================================================
+# Variables:
+#   @baseUrl          - URL base del backend (localhost:7071/api)
+#   @superadminToken  - JWT de superadmin (dashboard + todo)
+#   @adminToken       - JWT de admin (viajeros, recaudos, mensajes; SIN dashboard)
+#   @viajeroToken     - JWT de viajero/portal (solo consulta lo propio)
+#
+# Roles:
+#   superadmin - Dashboard KPIs, CRUD viajeros/recaudos, mensajes, usuarios
+#   admin      - CRUD viajeros/recaudos, mensajes. Sin dashboard (403)
+#   user       - Portal: consulta solo sus datos, saldo y recaudos
+#
+# Modelo:
+#   Client (viajero): name, cedula (unica), phone (obligatorio), ubicacion,
+#                     email (opcional), periodicidad (diario|semanal|quincenal|mensual),
+#                     isActive, userId (usuario del portal), saldo (calculado)
+#   Recaudo: clientId, fecha, valor. La periodicidad vive en el Client.
+#
+# Respuesta estandar:
+#   { "success": true, "data": {...}, "message": "...", "timestamp": "...", "statusCode": 200 }
+# ==========================================================
+
+
+# ==========================================================
+# 1. SEED & SETUP
+# ==========================================================
+
+### Ejecutar seed (crear superadmin inicial) - Ejecutar una sola vez desde terminal
+# npm run db:seed
+
+### Health Check - Verificar conexion a BD
+GET {{baseUrl}}/v1/health/db
+
+
+# ==========================================================
+# 2. AUTH
+# ==========================================================
+
+### Login - Obtener JWT de SuperAdmin
+# @name loginSuperAdmin
+POST {{baseUrl}}/v1/login
+Content-Type: application/json
+
+{
+  "email": "dataor52@gmail.com",
+  "password": "esg123"
+}
+
+### Login - Obtener JWT de Admin
+# @name loginAdmin
+# Requiere que el admin exista (ver seccion USERS)
+POST {{baseUrl}}/v1/login
+Content-Type: application/json
+
+{
+  "email": "admin@viajaya.com",
+  "password": "Admin123!"
+}
+
+### Login Portal viajero - Por cedula + password
+# @name loginViajero
+# El viajero entra con la cedula y la password asignada al crear el cliente
+POST {{baseUrl}}/v1/login
+Content-Type: application/json
+
+{
+  "cedula": "1234567890",
+  "password": "viajero123"
+}
+
+### Login - Deberia fallar con cedula inexistente (401)
+POST {{baseUrl}}/v1/login
+Content-Type: application/json
+
+{
+  "cedula": "000000",
+  "password": "cualquiera"
+}
+
+
+# ==========================================================
+# 3. USERS (gestion de usuarios del panel)
+# ==========================================================
+
+### Crear Admin (SOLO SUPERADMIN)
+POST {{baseUrl}}/v1/user/create
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "email": "admin@viajaya.com",
+  "name": "Admin Viajaya",
+  "password": "Admin123!",
+  "role": "admin"
+}
+
+### Crear Admin - Deberia fallar si admin intenta crear admin (403)
+POST {{baseUrl}}/v1/user/create
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "email": "otro@viajaya.com",
+  "name": "Otro Admin",
+  "password": "Admin123!",
+  "role": "admin"
+}
+
+### Listar usuarios (SUPERADMIN o ADMIN)
+GET {{baseUrl}}/v1/users
+Authorization: Bearer {{superadminToken}}
+
+### Listar usuarios - Deberia fallar con rol user (403)
+GET {{baseUrl}}/v1/users
+Authorization: Bearer {{viajeroToken}}
+
+### Cambiar password propio (ADMIN)
+PATCH {{baseUrl}}/v1/user/change-password
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "newPassword": "Admin123!",
+  "userId": "@adminUserId"
+}
+
+### Eliminar usuario (SUPERADMIN) - Requiere @targetUserId
+DELETE {{baseUrl}}/v1/users/@targetUserId
+Authorization: Bearer {{superadminToken}}
+
+
+# ==========================================================
+# 4. CLIENTS / VIAJEROS
+# ==========================================================
+
+### POST - Crear viajero (crea cliente + usuario del portal)
+# Requiere: @adminToken
+# El "password" crea el usuario del portal (login por cedula)
+# @name crearViajero
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "Juan Perez",
+  "cedula": "1234567890",
+  "phone": "3001234567",
+  "ubicacion": "Bogota",
+  "email": "juan@ejemplo.com",
+  "periodicidad": "mensual",
+  "password": "viajero123"
+}
+
+### POST - Crear viajero minimo (sin email ni ubicacion)
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "Maria Lopez",
+  "cedula": "9876543210",
+  "phone": "3109876543",
+  "periodicidad": "quincenal",
+  "password": "viajero123"
+}
+
+### POST - Deberia fallar sin campos obligatorios (400)
+# Faltan cedula, phone, periodicidad y password
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "Sin Campos"
+}
+
+### POST - Deberia fallar con cedula duplicada (409)
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "Duplicado",
+  "cedula": "1234567890",
+  "phone": "3000000000",
+  "periodicidad": "diario",
+  "password": "viajero123"
+}
+
+### POST - Deberia fallar con periodicidad invalida (400)
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "Bad Periodicidad",
+  "cedula": "5555555555",
+  "phone": "3000000001",
+  "periodicidad": "trimestral",
+  "password": "viajero123"
+}
+
+### POST - Deberia fallar con rol user (403)
+POST {{baseUrl}}/v1/clients
+Content-Type: application/json
+Authorization: Bearer {{viajeroToken}}
+
+{
+  "name": "No Puede",
+  "cedula": "1111111111",
+  "phone": "3000000002",
+  "periodicidad": "diario",
+  "password": "viajero123"
+}
+
+### GET - Listar viajeros con saldo (ADMIN)
+GET {{baseUrl}}/v1/clients
+Authorization: Bearer {{adminToken}}
+
+### GET - Listar viajeros con paginacion y busqueda
+GET {{baseUrl}}/v1/clients?search=juan&page=1&limit=10
+Authorization: Bearer {{adminToken}}
+
+### GET - Viajero lista solo lo suyo (USER)
+GET {{baseUrl}}/v1/clients
+Authorization: Bearer {{viajeroToken}}
+
+### GET - Obtener viajero por ID con saldo (ADMIN)
+GET {{baseUrl}}/v1/clients/1
+Authorization: Bearer {{adminToken}}
+
+### GET - Viajero obtiene otro viajero - Deberia fallar (403)
+GET {{baseUrl}}/v1/clients/999
+Authorization: Bearer {{viajeroToken}}
+
+### PATCH - Actualizar viajero (cambia password del portal)
+# Requiere: @adminToken
+PATCH {{baseUrl}}/v1/clients/1
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "phone": "3001112233",
+  "periodicidad": "quincenal",
+  "password": "nuevapass123"
+}
+
+### PATCH - Inactivar viajero (baja logica - visible en frontend)
+PATCH {{baseUrl}}/v1/clients/1
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "isActive": false
+}
+
+### PATCH - Reactivar viajero
+PATCH {{baseUrl}}/v1/clients/1
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "isActive": true
+}
+
+### PATCH - Deberia fallar con rol user (403)
+PATCH {{baseUrl}}/v1/clients/1
+Content-Type: application/json
+Authorization: Bearer {{viajeroToken}}
+
+{
+  "phone": "0000000000"
+}
+
+### DELETE - Eliminar viajero sin recaudos (elimina tambien su usuario)
+DELETE {{baseUrl}}/v1/clients/2
+Authorization: Bearer {{adminToken}}
+
+### DELETE - Eliminar viajero CON recaudos - Deberia fallar (409)
+# Primero debe eliminar todos sus recaudos
+# Requiere: @adminToken
+DELETE {{baseUrl}}/v1/clients/1
+Authorization: Bearer {{adminToken}}
+
+### PATCH - Asignar client a usuario existente (SOLO ADMIN)
+PATCH {{baseUrl}}/v1/clients/1/assign-user
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "userId": 2
+}
+
+
+# ==========================================================
+# 5. RECAUDOS
+# ==========================================================
+
+### POST - Registrar recaudo (SUPERADMIN o ADMIN)
+# @name crearRecaudo
+POST {{baseUrl}}/v1/recaudos
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "clientId": 1,
+  "fecha": "2026-10-01",
+  "valor": 150000
+}
+
+### POST - Registrar recaudo sin fecha (usa hoy)
+POST {{baseUrl}}/v1/recaudos
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "clientId": 1,
+  "valor": 50000
+}
+
+### POST - Deberia fallar con valor <= 0 (400)
+POST {{baseUrl}}/v1/recaudos
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "clientId": 1,
+  "valor": -100
+}
+
+### POST - Deberia fallar con cliente inexistente (404)
+POST {{baseUrl}}/v1/recaudos
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "clientId": 99999,
+  "valor": 100000
+}
+
+### POST - Deberia fallar con rol user (403)
+POST {{baseUrl}}/v1/recaudos
+Content-Type: application/json
+Authorization: Bearer {{viajeroToken}}
+
+{
+  "clientId": 1,
+  "valor": 100000
+}
+
+### GET - Listar todos los recaudos (ADMIN, filtrado por clientId)
+GET {{baseUrl}}/v1/recaudos?clientId=1&page=1&limit=10
+Authorization: Bearer {{adminToken}}
+
+### GET - Viajero lista solo sus recaudos (USER)
+GET {{baseUrl}}/v1/recaudos
+Authorization: Bearer {{viajeroToken}}
+
+### GET - Obtener recaudo por ID (ADMIN)
+GET {{baseUrl}}/v1/recaudos/1
+Authorization: Bearer {{adminToken}}
+
+### PATCH - Actualizar recaudo (ADMIN)
+PATCH {{baseUrl}}/v1/recaudos/1
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "valor": 175000
+}
+
+### DELETE - Eliminar recaudo (ADMIN)
+DELETE {{baseUrl}}/v1/recaudos/1
+Authorization: Bearer {{adminToken}}
+
+
+# ==========================================================
+# 6. DASHBOARD (SOLO SUPERADMIN)
+# ==========================================================
+
+### GET - KPIs: fondo viajero, usuarios registrados, alertas de inactividad
+# Dinero en Fondo Viajero = SUM(valor) de recaudos
+# Usuarios registrados   = COUNT(clients)
+# Alertas                = dias desde ultimo recaudo > limite (diario 7 / semanal 15 / quincenal 30 / mensual 30)
+GET {{baseUrl}}/v1/dashboard
+Authorization: Bearer {{superadminToken}}
+
+### GET - Dashboard - Deberia fallar con rol admin (403)
+GET {{baseUrl}}/v1/dashboard
+Authorization: Bearer {{adminToken}}
+
+### GET - Dashboard - Deberia fallar sin token (401)
+GET {{baseUrl}}/v1/dashboard
+
+
+# ==========================================================
+# 7. MENSAJES SMS (textBee) - SUPERADMIN y ADMIN
+# ==========================================================
+
+### POST - Enviar SMS a un numero (string)
+POST {{baseUrl}}/v1/messages/send
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "recipients": "+573058792169",
+  "message": "Hola desde Viajaya"
+}
+
+### POST - Enviar SMS a varios numeros (array o string con comas)
+POST {{baseUrl}}/v1/messages/send
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "recipients": ["+573058792169", "+573103608519"],
+  "message": "Recordatorio de recaudo Viajaya"
+}
+
+### POST - Enviar SMS - Deberia fallar sin message (400)
+POST {{baseUrl}}/v1/messages/send
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "recipients": "+573058792169"
+}
+
+### POST - Enviar SMS - Deberia fallar con rol user (403)
+POST {{baseUrl}}/v1/messages/send
+Content-Type: application/json
+Authorization: Bearer {{viajeroToken}}
+
+{
+  "recipients": "+573058792169",
+  "message": "No deberia enviarse"
+}
+
+
+# ==========================================================
+# 8. EVENTS Y DOCUMENTS (se conservan)
+# ==========================================================
+
+### GET - Listar eventos
+GET {{baseUrl}}/v1/events?page=1&limit=10
+Authorization: Bearer {{adminToken}}
+
+### POST - Crear evento asociado a un viajero (entityType: client)
+POST {{baseUrl}}/v1/events
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "title": "Llamada de seguimiento",
+  "entityType": "client",
+  "entityId": 1,
+  "type": "Llamada",
+  "description": "Seguimiento de recaudo",
+  "date": "2026-10-01T10:00:00Z",
+  "user": "Admin Viajaya",
+  "isVisible": true
+}
+
+### GET - Documentos de un viajero
+GET {{baseUrl}}/v1/documents?entityType=client&entityId=1
+Authorization: Bearer {{adminToken}}
+
+
+# ==========================================================
+# 9. PRODUCTS / CATEGORIES / PAYMENTS (se conservan)
+# ==========================================================
+
+### Obtener productos
+GET {{baseUrl}}/v1/products?page=1&limit=10
+Authorization: Bearer {{adminToken}}
+
+### Obtener categorias
+GET {{baseUrl}}/v1/categories
+Authorization: Bearer {{adminToken}}
+
+### Obtener purchases
+GET {{baseUrl}}/v1/purchases?page=1&limit=10
+Authorization: Bearer {{adminToken}}
+
+
+# ==========================================================
+# NOTAS
+# ==========================================================
+#
+# FLUJO DE USO:
+#   1. npm run db:seed  -> crea superadmin
+#   2. Login superadmin -> copiar token en @superadminToken
+#   3. POST /v1/user/create (role admin) -> login admin -> @adminToken
+#   4. POST /v1/clients -> crea viajero + su usuario del portal
+#   5. Login viajero con { "cedula": "...", "password": "..." } -> @viajeroToken
+#   6. POST /v1/recaudos -> registrar cobros
+#   7. GET /v1/dashboard (superadmin) -> KPIs
+#
+# ENDPOINTS:
+#   POST   /v1/login                    publico (email+password o cedula+password)
+#   GET    /v1/health/db                publico
+#   GET/POST/PATCH/DELETE /v1/clients   POST/PATCH/DELETE solo superadmin y admin
+#   GET    /v1/clients                  user solo ve los suyos (con saldo)
+#   PATCH  /v1/clients/{id}/assign-user superadmin y admin
+#   GET/POST/PATCH/DELETE /v1/recaudos  POST/PATCH/DELETE solo superadmin y admin
+#   GET    /v1/recaudos                 user solo ve los suyos
+#   GET    /v1/dashboard                SOLO superadmin (admin -> 403)
+#   POST   /v1/messages/send            superadmin y admin (SMS via textBee)
+#   POST   /v1/user/create              superadmin y admin
+#   GET    /v1/users                    superadmin y admin
+#   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)
+#   DELETE /v1/users/{id}               superadmin y admin (con restricciones)
+#
+# ELIMINAR VIAJERO:
+#   - Si tiene recaudos -> 409 (eliminarlos primero)
+#   - Si no tiene recaudos -> se borra el cliente y su usuario del portal
+#   - Para inactivar sin borrar -> PATCH { "isActive": false }
+#
+# ERRORES:
+#   400 - Validacion (campos obligatorios, periodicidad invalida, valor <= 0)
+#   401 - No autenticado / token invalido
+#   403 - Sin permisos (rol insuficiente)
+#   404 - Recurso no encontrado
+#   409 - Conflicto (cedula duplicada, cliente con recaudos)
+#   500 - Error interno (ej. TEXTBEE_API_KEY sin configurar)
+#
+# RESPUESTA ESTANDAR:
+#   { "success": true, "data": {...}, "message": "...", "timestamp": "...", "statusCode": 200 }
+#
+# ==========================================================

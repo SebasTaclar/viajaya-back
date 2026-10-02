@@ -1,0 +1,189 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "linux-musl"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  email          String?  @unique
+  password       String
+  name           String
+  role           String
+  membershipPaid Boolean  @default(false) @map("membership_paid")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  clients        Client[]
+
+  @@map("users")
+}
+
+model Purchase {
+  id                        Int           @id @default(autoincrement())
+  buyerEmail                String        @map("buyer_email")
+  buyerName                 String        @map("buyer_name")
+  buyerIdentificationNumber String        @map("buyer_identification_number")
+  buyerContactNumber        String        @map("buyer_contact_number")
+  shippingAddress           String?       @map("shipping_address")
+  status                    String        @default("PENDING")
+  orderStatus               String        @default("PENDING") @map("order_status")
+  mercadopagoPaymentId      String?       @map("mercadopago_payment_id")
+  preferenceId              String        @map("preference_id")
+  externalReference         String        @map("external_reference")
+  amount                    Int           @default(15000)
+  currency                  String        @default("COP")
+  paymentProvider           String?       @map("payment_provider")
+  wompiTransactionId        String?       @map("wompi_transaction_id")
+  createdAt                 DateTime      @default(now()) @map("created_at")
+  updatedAt                 DateTime      @updatedAt @map("updated_at")
+  orderDetails              OrderDetail[]
+
+  @@map("purchases")
+}
+
+model OrderDetail {
+  id            Int      @id @default(autoincrement())
+  purchaseId    Int      @map("purchase_id")
+  productName   String   @map("product_name")
+  quantity      Int      @default(1)
+  unitPrice     Decimal  @map("unit_price") @db.Decimal(10, 2)
+  totalPrice    Decimal  @map("total_price") @db.Decimal(10, 2)
+  selectedColor String?  @map("selected_color")
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@map("order_details")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            Int      @id @default(autoincrement())
+  name          String
+  description   String
+  price         Decimal  @db.Decimal(10, 2)
+  originalPrice Decimal? @map("original_price") @db.Decimal(10, 2)
+  images        String
+  categoryId    Int      @map("category_id")
+  status        String   @default("available")
+  colors        String?
+  isShowcase    Boolean  @default(false) @map("is_showcase")
+  showcaseImage String?  @map("showcase_image")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  category      Category @relation(fields: [categoryId], references: [id])
+
+  @@index([categoryId], map: "idx_products_category")
+  @@index([isShowcase], map: "idx_products_showcase")
+  @@map("products")
+}
+
+model Client {
+  id           Int      @id @default(autoincrement())
+  name         String
+  cedula       String   @unique
+  ubicacion    String?
+  phone        String
+  email        String?
+  periodicidad String
+  isActive     Boolean  @default(true) @map("is_active")
+  userId       Int?     @map("user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  user         User?    @relation(fields: [userId], references: [id])
+  recaudos     Recaudo[]
+
+  @@index([isActive], map: "idx_clients_is_active")
+  @@index([userId], map: "idx_clients_user_id")
+  @@map("clients")
+}
+
+model Recaudo {
+  id        Int      @id @default(autoincrement())
+  clientId  Int      @map("client_id")
+  fecha     DateTime @default(now())
+  valor     Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  @@index([clientId], map: "idx_recaudos_client_id")
+  @@index([fecha], map: "idx_recaudos_fecha")
+  @@map("recaudos")
+}
+
+model Event {
+  id              Int       @id @default(autoincrement())
+  title           String?                                  @map("title")
+  entityType      String?                                 @map("entity_type")
+  entityId        Int?                                    @map("entity_id")
+  client          String?
+  type            String
+  typeOtro        String?   @map("type_otro")
+  date            DateTime
+  endDate         DateTime? @map("end_date")
+  modalidad       String?
+  modalidadOtro   String?   @map("modalidad_otro")
+  location        String?
+  personaContacto String?   @map("persona_contacto")
+  user            String
+  userOtro        String?   @map("user_otro")
+  leadAuditor     String?   @map("lead_auditor")
+  coAuditors      String?   @map("co_auditors")
+  normas          String?
+  description     String?
+  isVisible       Boolean   @default(false) @map("is_visible")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([entityType, entityId], map: "idx_events_entity")
+  @@index([date], map: "idx_events_date")
+  @@index([isVisible], map: "idx_events_is_visible")
+  @@map("events")
+}
+
+model Document {
+  id         Int      @id @default(autoincrement())
+  entityType String?  @map("entity_type")
+  entityId   Int?     @map("entity_id")
+  name       String
+  type       String?
+  url        String
+  size       Int?
+  user       String
+  isVisible  Boolean  @default(false) @map("is_visible")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime? @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId], map: "idx_documents_entity")
+  @@index([isVisible], map: "idx_documents_is_visible")
+  @@map("documents")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model base_clientes_esg {
+  C_digo_Cliente               String? @map("Código Cliente")
+  Razon_Social_Persona_Natural String? @map("Razon Social;Persona Natural")
+  NIT                          String?
+  Ciudad                       String?
+  Departamento                 String?
+  Direcci_n                    String? @map("Dirección")
+  Nombre                       String?
+  Telefono                     String?
+  Correo                       String?
+  Significado                  String?
+  Norma                        String?
+
+  @@ignore
+}
