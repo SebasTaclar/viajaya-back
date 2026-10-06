@@ -7,6 +7,17 @@ import { IClientDataSource } from '../../domain/interfaces/IClientDataSource';
 import { canChangePassword, canDeleteUser, canCreateUserWithRole } from '../../shared/roleMiddleware';
 import { USER_ROLES } from '../../shared/UserRoles';
 import { AuthenticatedUser } from '../../shared/authMiddleware';
+import { AuditService } from './AuditService';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_LOGIN_REASONS,
+  AUDIT_STATUS,
+  AUDIT_TABLES,
+  AuditActor,
+  AuditLoginReason,
+  AuditRequestContext,
+  auditSnapshot,
+} from '../../domain/entities/AuditLog';
 
 export interface LoginRequest {
   email?: string;
@@ -34,24 +45,93 @@ export class AuthService {
   private logger: Logger;
   private userDataSource: IUserDataSource;
   private clientDataSource: IClientDataSource;
+  private auditService: AuditService;
 
-  constructor(logger: Logger, userDataSource: IUserDataSource, clientDataSource: IClientDataSource) {
+  constructor(
+    logger: Logger,
+    userDataSource: IUserDataSource,
+    clientDataSource: IClientDataSource,
+    auditService: AuditService
+  ) {
     this.logger = logger;
     this.userDataSource = userDataSource;
     this.clientDataSource = clientDataSource;
+    this.auditService = auditService;
   }
 
-  async login(loginRequest: LoginRequest): Promise<string> {
+  private buildLoginActor(identifier: string | null, context?: AuditRequestContext): AuditActor {
+    return {
+      userId: null,
+      username: identifier,
+      ipAddress: context?.ipAddress ?? null,
+      userAgent: context?.userAgent ?? null,
+    };
+  }
+
+  private async recordLoginFailure(
+    identifier: string | null,
+    reason: AuditLoginReason,
+    context?: AuditRequestContext
+  ): Promise<void> {
+    await this.auditService.record({
+      action: AUDIT_ACTIONS.LOGIN,
+      tableName: AUDIT_TABLES.USERS,
+      entityId: null,
+      actor: this.buildLoginActor(identifier, context),
+      status: AUDIT_STATUS.FAILURE,
+      data: { reason },
+    });
+  }
+
+  private async recordPortalLoginFailure(
+    cedula: string,
+    reason: AuditLoginReason,
+    context?: AuditRequestContext
+  ): Promise<void> {
+    await this.auditService.record({
+      action: AUDIT_ACTIONS.LOGIN_CLIENT,
+      tableName: AUDIT_TABLES.USERS,
+      entityId: null,
+      actor: this.buildLoginActor(cedula, context),
+      status: AUDIT_STATUS.FAILURE,
+      data: { reason },
+    });
+  }
+
+  private async recordLoginSuccess(
+    action: typeof AUDIT_ACTIONS.LOGIN | typeof AUDIT_ACTIONS.LOGIN_CLIENT,
+    userId: number,
+    identifier: string | null,
+    user: { id: number; email: string | null; name: string; role: string },
+    loginType: 'email' | 'cedula',
+    context?: AuditRequestContext
+  ): Promise<void> {
+    await this.auditService.record({
+      action,
+      tableName: AUDIT_TABLES.USERS,
+      entityId: userId,
+      actor: {
+        ...this.buildLoginActor(identifier, context),
+        userId,
+        username: identifier,
+      },
+      status: AUDIT_STATUS.SUCCESS,
+      data: { loginType, user: auditSnapshot(user) },
+    });
+  }
+
+  async login(loginRequest: LoginRequest, context?: AuditRequestContext): Promise<string> {
     const { email, cedula, password } = loginRequest;
 
     if (cedula) {
-      return this.loginWithCedula(cedula, password);
+      return this.loginWithCedula(cedula, password, context);
     }
 
     this.logger.logInfo(`Login attempt for user: ${email}`);
 
     if (!email || !password) {
       this.logger.logWarning('Login failed: missing email or password');
+      await this.recordLoginFailure(email ?? null, AUDIT_LOGIN_REASONS.MISSING_CREDENTIALS, context);
       throw new ValidationError('Email and password are required');
     }
 
@@ -60,6 +140,7 @@ export class AuthService {
 
     if (!user) {
       this.logger.logWarning(`Login failed for user: ${email} - user not found`);
+      await this.recordLoginFailure(email, AUDIT_LOGIN_REASONS.USER_NOT_FOUND, context);
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -68,6 +149,7 @@ export class AuthService {
 
     if (!isValidPassword) {
       this.logger.logWarning(`Login failed for user: ${email} - invalid password`);
+      await this.recordLoginFailure(email, AUDIT_LOGIN_REASONS.INVALID_PASSWORD, context);
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -81,13 +163,23 @@ export class AuthService {
 
     this.logger.logInfo(`Login successful for user: ${email} with role: ${user.role}`);
 
+    await this.recordLoginSuccess(
+      AUDIT_ACTIONS.LOGIN,
+      user.id,
+      email,
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      'email',
+      context
+    );
+
     return token;
   }
 
-  async loginWithCedula(cedula: string, password: string): Promise<string> {
+  async loginWithCedula(cedula: string, password: string, context?: AuditRequestContext): Promise<string> {
     this.logger.logInfo(`Portal login attempt for cedula: ${cedula}`);
 
     if (!password) {
+      await this.recordPortalLoginFailure(cedula, AUDIT_LOGIN_REASONS.MISSING_CREDENTIALS, context);
       throw new ValidationError('Password is required');
     }
 
@@ -95,6 +187,7 @@ export class AuthService {
 
     if (!client || !client.userId) {
       this.logger.logWarning(`Portal login failed for cedula: ${cedula} - not found`);
+      await this.recordPortalLoginFailure(cedula, AUDIT_LOGIN_REASONS.CLIENT_NOT_FOUND, context);
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -102,6 +195,7 @@ export class AuthService {
 
     if (!user) {
       this.logger.logWarning(`Portal login failed for cedula: ${cedula} - user not found`);
+      await this.recordPortalLoginFailure(cedula, AUDIT_LOGIN_REASONS.USER_NOT_FOUND, context);
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -109,6 +203,7 @@ export class AuthService {
 
     if (!isValidPassword) {
       this.logger.logWarning(`Portal login failed for cedula: ${cedula} - invalid password`);
+      await this.recordPortalLoginFailure(cedula, AUDIT_LOGIN_REASONS.INVALID_PASSWORD, context);
       throw new AuthenticationError('Invalid credentials');
     }
 
@@ -121,6 +216,15 @@ export class AuthService {
     });
 
     this.logger.logInfo(`Portal login successful for cedula: ${cedula}`);
+
+    await this.recordLoginSuccess(
+      AUDIT_ACTIONS.LOGIN_CLIENT,
+      user.id,
+      cedula,
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      'cedula',
+      context
+    );
 
     return token;
   }

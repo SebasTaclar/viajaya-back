@@ -6,6 +6,7 @@ import { Logger } from '../src/shared/Logger';
 import { ApiResponseBuilder } from '../src/shared/ApiResponse';
 import { AuthenticatedUser } from '../src/shared/authMiddleware';
 import { isAdmin, isClient, isSuperAdmin } from '../src/shared/roleMiddleware';
+import { buildAuditActor } from '../src/shared/auditContext';
 
 const canManageRecaudos = (user: AuthenticatedUser): boolean =>
   isAdmin(user) || isSuperAdmin(user);
@@ -19,6 +20,7 @@ const funcRecaudos = async (
   const recaudoService = getRecaudoService(logger);
   const method = req.method?.toUpperCase();
   const id = req.params.id ? parseInt(req.params.id, 10) : null;
+  const actor = buildAuditActor(user, req);
 
   if (method === 'GET' && !id) {
     const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
@@ -81,7 +83,7 @@ const funcRecaudos = async (
       valor: body.valor !== undefined ? Number(body.valor) : (undefined as unknown as number),
     };
 
-    const recaudo = await recaudoService.createRecaudo(recaudoRequest);
+    const recaudo = await recaudoService.createRecaudo(recaudoRequest, actor);
     return { success: true, message: 'Recaudo created successfully', data: recaudo, timestamp: new Date().toISOString(), statusCode: 201 };
   }
 
@@ -98,7 +100,7 @@ const funcRecaudos = async (
       valor: body.valor !== undefined ? Number(body.valor) : undefined,
     };
 
-    const recaudo = await recaudoService.updateRecaudo(id, updateRequest);
+    const recaudo = await recaudoService.updateRecaudo(id, updateRequest, actor);
     return ApiResponseBuilder.success(recaudo, 'Recaudo updated successfully');
   }
 
@@ -109,7 +111,7 @@ const funcRecaudos = async (
       return ApiResponseBuilder.error('Forbidden: Only admins can delete recaudos', 403);
     }
 
-    await recaudoService.deleteRecaudo(id);
+    await recaudoService.deleteRecaudo(id, actor);
     return ApiResponseBuilder.success({ id }, 'Recaudo deleted successfully');
   }
 

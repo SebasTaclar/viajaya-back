@@ -10,6 +10,7 @@ import { RecaudoService } from '../application/services/RecaudoService';
 import { DashboardService } from '../application/services/DashboardService';
 import { EventService } from '../application/services/EventService';
 import { DocumentService } from '../application/services/DocumentService';
+import { AuditService } from '../application/services/AuditService';
 import { PendingBalanceReminderService } from '../application/services/PendingBalanceReminderService';
 import { MercadoPagoService } from '../infrastructure/services/MercadoPagoService';
 import { EmailService } from '../infrastructure/services/EmailService';
@@ -24,6 +25,7 @@ import { ClientPrismaAdapter } from '../infrastructure/DbAdapters/ClientPrismaAd
 import { RecaudoPrismaAdapter } from '../infrastructure/DbAdapters/RecaudoPrismaAdapter';
 import { EventPrismaAdapter } from '../infrastructure/DbAdapters/EventPrismaAdapter';
 import { DocumentPrismaAdapter } from '../infrastructure/DbAdapters/DocumentPrismaAdapter';
+import { AuditLogPrismaAdapter } from '../infrastructure/DbAdapters/AuditLogPrismaAdapter';
 import { IUserDataSource } from '../domain/interfaces/IUserDataSource';
 import { ICategoryDataSource } from '../domain/interfaces/ICategoryDataSource';
 import { IProductDataSource } from '../domain/interfaces/IProductDataSource';
@@ -32,6 +34,7 @@ import { IClientDataSource } from '../domain/interfaces/IClientDataSource';
 import { IRecaudoDataSource } from '../domain/interfaces/IRecaudoDataSource';
 import { IEventDataSource } from '../domain/interfaces/IEventDataSource';
 import { IDocumentDataSource } from '../domain/interfaces/IDocumentDataSource';
+import { IAuditLogDataSource } from '../domain/interfaces/IAuditLogDataSource';
 import { getPrismaClient } from '../config/PrismaClient';
 
 export class ServiceProvider {
@@ -69,10 +72,15 @@ export class ServiceProvider {
     return new DocumentPrismaAdapter();
   }
 
+  static getAuditDataSource(): IAuditLogDataSource {
+    return new AuditLogPrismaAdapter();
+  }
+
   static getAuthService(logger: Logger): AuthService {
     const userDataSource = this.getUserDataSource();
     const clientDataSource = this.getClientDataSource();
-    return new AuthService(logger, userDataSource, clientDataSource);
+    const auditService = this.getAuditService(logger);
+    return new AuthService(logger, userDataSource, clientDataSource, auditService);
   }
 
   static getCategoryService(logger: Logger): CategoryService {
@@ -105,13 +113,15 @@ export class ServiceProvider {
     const clientDataSource = this.getClientDataSource();
     const userDataSource = this.getUserDataSource();
     const recaudoDataSource = this.getRecaudoDataSource();
-    return new ClientService(logger, clientDataSource, userDataSource, recaudoDataSource);
+    const auditService = this.getAuditService(logger);
+    return new ClientService(logger, clientDataSource, userDataSource, recaudoDataSource, auditService);
   }
 
   static getRecaudoService(logger: Logger): RecaudoService {
     const recaudoDataSource = this.getRecaudoDataSource();
     const clientDataSource = this.getClientDataSource();
-    return new RecaudoService(logger, recaudoDataSource, clientDataSource);
+    const auditService = this.getAuditService(logger);
+    return new RecaudoService(logger, recaudoDataSource, clientDataSource, auditService);
   }
 
   static getDashboardService(logger: Logger): DashboardService {
@@ -131,6 +141,10 @@ export class ServiceProvider {
     const fileStorageService = this.getFileStorageService(logger);
     const clientDataSource = this.getClientDataSource();
     return new DocumentService(logger, documentDataSource, fileStorageService, clientDataSource);
+  }
+
+  static getAuditService(logger: Logger): AuditService {
+    return new AuditService(logger, this.getAuditDataSource());
   }
 
   static getEmailService(logger: Logger): EmailService {
@@ -227,6 +241,10 @@ export const getTextBeeService = (logger: Logger): TextBeeService => {
   return ServiceProvider.getTextBeeService(logger);
 };
 
+export const getAuditService = (logger: Logger): AuditService => {
+  return ServiceProvider.getAuditService(logger);
+};
+
 export const getUserDataSource = (): IUserDataSource => {
   return ServiceProvider.getUserDataSource();
 };
@@ -257,4 +275,8 @@ export const getEventDataSource = (): IEventDataSource => {
 
 export const getDocumentDataSource = (): IDocumentDataSource => {
   return ServiceProvider.getDocumentDataSource();
+};
+
+export const getAuditDataSource = (): IAuditLogDataSource => {
+  return ServiceProvider.getAuditDataSource();
 };

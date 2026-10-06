@@ -5,6 +5,9 @@ import { withAuthenticatedApiHandler } from '../src/shared/apiHandler';
 import { withRole, isAdmin, isSuperAdmin } from '../src/shared/roleMiddleware';
 import { AuthenticatedUser } from '../src/shared/authMiddleware';
 import { getPrismaClient } from '../src/config/PrismaClient';
+import { buildAuditActor } from '../src/shared/auditContext';
+import { getAuditService } from '../src/shared/serviceProvider';
+import { AUDIT_ACTIONS, AUDIT_STATUS, AUDIT_TABLES, auditSnapshot } from '../src/domain/entities/AuditLog';
 
 const funcAssignClient = async (
   _context: Context,
@@ -45,6 +48,19 @@ const funcAssignClient = async (
   const updatedClient = await prisma.client.update({
     where: { id: clientId },
     data: { userId: userId },
+  });
+
+  await getAuditService(log).record({
+    action: AUDIT_ACTIONS.UPDATE,
+    tableName: AUDIT_TABLES.CLIENTS,
+    entityId: clientId,
+    actor: buildAuditActor(user, req),
+    status: AUDIT_STATUS.SUCCESS,
+    data: {
+      before: auditSnapshot(client),
+      after: auditSnapshot(updatedClient),
+      change: 'userId assigned',
+    },
   });
 
   log.logInfo(`Client ${clientId} assigned to user ${userId} by admin ${user.email}`);

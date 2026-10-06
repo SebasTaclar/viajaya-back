@@ -171,6 +171,28 @@ model Document {
   @@map("documents")
 }
 
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  occurredAt DateTime @default(now()) @map("occurred_at")
+  action     String
+  tableName  String   @map("table_name")
+  entityId   Int?     @map("entity_id")
+  userId     Int?     @map("user_id")
+  username   String?
+  status     String   @default("SUCCESS")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  data       Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([occurredAt], map: "idx_audit_logs_occurred_at")
+  @@index([userId], map: "idx_audit_logs_user_id")
+  @@index([tableName], map: "idx_audit_logs_table_name")
+  @@index([action], map: "idx_audit_logs_action")
+  @@map("audit_logs")
+}
+
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model base_clientes_esg {
   C_digo_Cliente               String? @map("Código Cliente")

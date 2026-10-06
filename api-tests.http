@@ -491,6 +491,41 @@ Authorization: Bearer {{adminToken}}
 
 
 # ==========================================================
+# 10. AUDIT LOGS (movimientos - SOLO SUPERADMIN)
+# ==========================================================
+# Registra automaticamente:
+#   - LOGIN (email admin/superadmin) y LOGIN_CLIENT (portal por cedula), SUCCESS y FAILURE
+#   - CREATE/UPDATE/DELETE en clients y recaudos
+#   - Asignacion de usuario a un viajero (assign-user)
+# Columnas: occurred_at (fecha del movimiento), action, table_name, entity_id,
+#           user_id, username (email o cedula), status (SUCCESS|FAILURE),
+#           ip_address, user_agent, data (JSONB { before, after, reason })
+
+### GET - Listar movimientos auditados (SOLO SUPERADMIN)
+GET {{baseUrl}}/v1/audit?page=1&limit=10
+Authorization: Bearer {{superadminToken}}
+
+### GET - Filtrar por tabla y accion
+GET {{baseUrl}}/v1/audit?tableName=clients&action=CREATE&page=1&limit=10
+Authorization: Bearer {{superadminToken}}
+
+### GET - Filtrar logins fallidos (status=FAILURE)
+GET {{baseUrl}}/v1/audit?action=LOGIN&status=FAILURE
+Authorization: Bearer {{superadminToken}}
+
+### GET - Filtrar por usuario y rango de fechas
+GET {{baseUrl}}/v1/audit?userId=1&startDate=2026-10-01&endDate=2026-10-31
+Authorization: Bearer {{superadminToken}}
+
+### GET - Deberia fallar con rol admin (403)
+GET {{baseUrl}}/v1/audit
+Authorization: Bearer {{adminToken}}
+
+### GET - Deberia fallar sin token (401)
+GET {{baseUrl}}/v1/audit
+
+
+# ==========================================================
 # NOTAS
 # ==========================================================
 #
@@ -517,6 +552,14 @@ Authorization: Bearer {{adminToken}}
 #   GET    /v1/users                    superadmin y admin
 #   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)
 #   DELETE /v1/users/{id}               superadmin y admin (con restricciones)
+#   GET    /v1/audit                    SOLO superadmin (movimientos auditados)
+#
+# AUDIT (movimientos):
+#   - Login admin (email) y login cliente (cedula) registran LOGIN / LOGIN_CLIENT
+#     con status SUCCESS o FAILURE (user_not_found, invalid_password, etc.)
+#   - CREATE/UPDATE/DELETE en clients y recaudos guardan el usuario que hizo la
+#     operacion (user_id + username), ip, user_agent y el JSON { before, after }
+#   - GET /v1/audit filtra por action, tableName, status, userId, startDate, endDate
 #
 # ELIMINAR VIAJERO:
 #   - Si tiene recaudos -> 409 (eliminarlos primero)

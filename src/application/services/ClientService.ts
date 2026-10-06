@@ -6,6 +6,14 @@ import { IUserDataSource } from '../../domain/interfaces/IUserDataSource';
 import { IRecaudoDataSource } from '../../domain/interfaces/IRecaudoDataSource';
 import { USER_ROLES } from '../../shared/UserRoles';
 import { Client } from '@prisma/client';
+import { AuditService } from './AuditService';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_STATUS,
+  AUDIT_TABLES,
+  AuditActor,
+  auditSnapshot,
+} from '../../domain/entities/AuditLog';
 
 export const PERIODICIDADES = ['diario', 'semanal', 'quincenal', 'mensual'] as const;
 export type Periodicidad = (typeof PERIODICIDADES)[number];
@@ -76,20 +84,39 @@ export class ClientService {
   private clientDataSource: IClientDataSource;
   private userDataSource: IUserDataSource;
   private recaudoDataSource: IRecaudoDataSource;
+  private auditService: AuditService;
 
   constructor(
     logger: Logger,
     clientDataSource: IClientDataSource,
     userDataSource: IUserDataSource,
-    recaudoDataSource: IRecaudoDataSource
+    recaudoDataSource: IRecaudoDataSource,
+    auditService: AuditService
   ) {
     this.logger = logger;
     this.clientDataSource = clientDataSource;
     this.userDataSource = userDataSource;
     this.recaudoDataSource = recaudoDataSource;
+    this.auditService = auditService;
   }
 
-  async createClient(data: ClientRequest): Promise<ClientResponse> {
+  private async recordClientChange(
+    action: typeof AUDIT_ACTIONS.CREATE | typeof AUDIT_ACTIONS.UPDATE | typeof AUDIT_ACTIONS.DELETE,
+    entityId: number,
+    actor: AuditActor | undefined,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    await this.auditService.record({
+      action,
+      tableName: AUDIT_TABLES.CLIENTS,
+      entityId,
+      actor,
+      status: AUDIT_STATUS.SUCCESS,
+      data,
+    });
+  }
+
+  async createClient(data: ClientRequest, actor?: AuditActor): Promise<ClientResponse> {
     this.logger.info(`Creating client with cedula: ${data.cedula}`);
 
     const errors: string[] = [];
@@ -137,6 +164,10 @@ export class ClientService {
 
       const linked = await this.clientDataSource.update(client.id, { userId: user.id });
       this.logger.info(`Client ${client.id} created and linked to user ${user.id}`);
+
+      await this.recordClientChange(AUDIT_ACTIONS.CREATE, client.id, actor, {
+        after: auditSnapshot(linked),
+      });
 
       return toClientResponse(linked, 0);
     } catch (error) {
@@ -198,13 +229,15 @@ export class ClientService {
     return clients.map((c) => toClientResponse(c, saldoMap.get(c.id) || 0));
   }
 
-  async updateClient(id: number, data: UpdateClientRequest): Promise<ClientResponse> {
+  async updateClient(id: number, data: UpdateClientRequest, actor?: AuditActor): Promise<ClientResponse> {
     this.logger.info(`Updating client with ID: ${id}`);
 
     const existingClient = await this.clientDataSource.getById(id);
     if (!existingClient) {
       throw new NotFoundError(`Client with ID ${id} not found`);
     }
+
+    const beforeSnapshot = auditSnapshot(existingClient);
 
     if (data.periodicidad) validatePeriodicidad(data.periodicidad);
     if (data.password) PasswordUtils.validatePassword(data.password);
@@ -256,11 +289,19 @@ export class ClientService {
       }
     }
 
+    const updatedClient = (await this.clientDataSource.getById(id)) ?? client;
+    const saldo = await this.recaudoDataSource.sumByClientId(id);
+
+    await this.recordClientChange(AUDIT_ACTIONS.UPDATE, id, actor, {
+      before: beforeSnapshot,
+      after: auditSnapshot(updatedClient),
+    });
+
     this.logger.info(`Client ${id} updated successfully`);
-    return this.getClientById(id);
+    return toClientResponse(updatedClient, saldo);
   }
 
-  async deleteClient(id: number): Promise<void> {
+  async deleteClient(id: number, actor?: AuditActor): Promise<void> {
     this.logger.info(`Deleting client with ID: ${id}`);
 
     const existingClient = await this.clientDataSource.getById(id);
@@ -282,6 +323,10 @@ export class ClientService {
 
     await this.clientDataSource.delete(id);
     this.logger.info(`Client ${id} deleted successfully`);
+
+    await this.recordClientChange(AUDIT_ACTIONS.DELETE, id, actor, {
+      before: auditSnapshot(existingClient),
+    });
   }
 
   async searchClients(

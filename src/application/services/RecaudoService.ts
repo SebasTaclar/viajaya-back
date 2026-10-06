@@ -3,6 +3,14 @@ import { Logger } from '../../shared/Logger';
 import { IRecaudoDataSource } from '../../domain/interfaces/IRecaudoDataSource';
 import { IClientDataSource } from '../../domain/interfaces/IClientDataSource';
 import { Recaudo } from '@prisma/client';
+import { AuditService } from './AuditService';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_STATUS,
+  AUDIT_TABLES,
+  AuditActor,
+  auditSnapshot,
+} from '../../domain/entities/AuditLog';
 
 export interface RecaudoRequest {
   clientId: number;
@@ -51,15 +59,34 @@ export class RecaudoService {
   private logger: Logger;
   private recaudoDataSource: IRecaudoDataSource;
   private clientDataSource: IClientDataSource;
+  private auditService: AuditService;
 
   constructor(
     logger: Logger,
     recaudoDataSource: IRecaudoDataSource,
-    clientDataSource: IClientDataSource
+    clientDataSource: IClientDataSource,
+    auditService: AuditService
   ) {
     this.logger = logger;
     this.recaudoDataSource = recaudoDataSource;
     this.clientDataSource = clientDataSource;
+    this.auditService = auditService;
+  }
+
+  private async recordRecaudoChange(
+    action: typeof AUDIT_ACTIONS.CREATE | typeof AUDIT_ACTIONS.UPDATE | typeof AUDIT_ACTIONS.DELETE,
+    entityId: number,
+    actor: AuditActor | undefined,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    await this.auditService.record({
+      action,
+      tableName: AUDIT_TABLES.RECAUDOS,
+      entityId,
+      actor,
+      status: AUDIT_STATUS.SUCCESS,
+      data,
+    });
   }
 
   async getAllRecaudos(
@@ -118,7 +145,7 @@ export class RecaudoService {
     return toRecaudoResponse(recaudo);
   }
 
-  async createRecaudo(data: RecaudoRequest): Promise<RecaudoResponse> {
+  async createRecaudo(data: RecaudoRequest, actor?: AuditActor): Promise<RecaudoResponse> {
     this.logger.info(`Creating recaudo for client ${data.clientId}`);
 
     if (!data.clientId) throw new ValidationError('clientId is required');
@@ -141,16 +168,23 @@ export class RecaudoService {
     });
 
     this.logger.info(`Recaudo created with ID: ${recaudo.id}`);
+
+    await this.recordRecaudoChange(AUDIT_ACTIONS.CREATE, recaudo.id, actor, {
+      after: auditSnapshot(recaudo),
+    });
+
     return toRecaudoResponse(recaudo);
   }
 
-  async updateRecaudo(id: number, data: UpdateRecaudoRequest): Promise<RecaudoResponse> {
+  async updateRecaudo(id: number, data: UpdateRecaudoRequest, actor?: AuditActor): Promise<RecaudoResponse> {
     this.logger.info(`Updating recaudo ${id}`);
 
     const existing = await this.recaudoDataSource.getById(id);
     if (!existing) {
       throw new NotFoundError(`Recaudo with ID ${id} not found`);
     }
+
+    const beforeSnapshot = auditSnapshot(existing);
 
     if (data.valor !== undefined && (typeof data.valor !== 'number' || isNaN(data.valor) || data.valor <= 0)) {
       throw new ValidationError('valor must be a number greater than 0');
@@ -161,10 +195,15 @@ export class RecaudoService {
       valor: data.valor,
     });
 
+    await this.recordRecaudoChange(AUDIT_ACTIONS.UPDATE, id, actor, {
+      before: beforeSnapshot,
+      after: auditSnapshot(recaudo),
+    });
+
     return toRecaudoResponse(recaudo);
   }
 
-  async deleteRecaudo(id: number): Promise<void> {
+  async deleteRecaudo(id: number, actor?: AuditActor): Promise<void> {
     this.logger.info(`Deleting recaudo ${id}`);
 
     const existing = await this.recaudoDataSource.getById(id);
@@ -174,5 +213,9 @@ export class RecaudoService {
 
     await this.recaudoDataSource.delete(id);
     this.logger.info(`Recaudo ${id} deleted successfully`);
+
+    await this.recordRecaudoChange(AUDIT_ACTIONS.DELETE, id, actor, {
+      before: auditSnapshot(existing),
+    });
   }
 }

@@ -6,6 +6,7 @@ import { Logger } from '../src/shared/Logger';
 import { ApiResponseBuilder } from '../src/shared/ApiResponse';
 import { AuthenticatedUser } from '../src/shared/authMiddleware';
 import { isAdmin, isClient, isSuperAdmin } from '../src/shared/roleMiddleware';
+import { buildAuditActor } from '../src/shared/auditContext';
 
 const canManageClients = (user: AuthenticatedUser): boolean =>
   isAdmin(user) || isSuperAdmin(user);
@@ -19,6 +20,7 @@ const funcClients = async (
   const clientService = getClientService(logger);
   const method = req.method?.toUpperCase();
   const id = req.params.id ? parseInt(req.params.id, 10) : null;
+  const actor = buildAuditActor(user, req);
 
   if (method === 'GET' && !id) {
     logger.info('GET /clients - Fetching clients');
@@ -90,7 +92,7 @@ const funcClients = async (
       password: body.password as string,
     };
 
-    const client = await clientService.createClient(clientRequest);
+    const client = await clientService.createClient(clientRequest, actor);
     return { success: true, message: 'Client created successfully', data: client, timestamp: new Date().toISOString(), statusCode: 201 };
   }
 
@@ -113,7 +115,7 @@ const funcClients = async (
       password: body.password as string,
     };
 
-    const client = await clientService.updateClient(id, updateRequest);
+    const client = await clientService.updateClient(id, updateRequest, actor);
     return ApiResponseBuilder.success(client, 'Client updated successfully');
   }
 
@@ -124,7 +126,7 @@ const funcClients = async (
       return ApiResponseBuilder.error('Forbidden: Only admins can delete clients', 403);
     }
 
-    await clientService.deleteClient(id);
+    await clientService.deleteClient(id, actor);
     return ApiResponseBuilder.success({ id }, 'Client deleted successfully');
   }
 
