@@ -117,6 +117,78 @@ Authorization: Bearer {{adminToken}}
 GET {{baseUrl}}/v1/users
 Authorization: Bearer {{superadminToken}}
 
+### PATCH - Actualizar email/name de un usuario (SUPERADMIN)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "email": "nuevo@ejemplo.com",
+  "name": "Nuevo Nombre"
+}
+
+### PATCH - Actualizar perfil propio (ADMIN)
+PATCH {{baseUrl}}/v1/users/@adminUserId
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "email": "admin@viajaya.com",
+  "name": "Admin Viajaya"
+}
+
+### PATCH - Admin actualiza a otro usuario - Deberia fallar (403)
+# Solo superadmin puede editar a otros; admin solo su propio perfil
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "name": "No Deberia Actualizar"
+}
+
+### PATCH - Deberia fallar con email duplicado (409)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "email": "admin@viajaya.com"
+}
+
+### PATCH - Deberia fallar sin campos (400)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{}
+
+### PATCH - Deberia fallar con id inexistente (404)
+PATCH {{baseUrl}}/v1/users/99999
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "name": "No Existe"
+}
+
+### PATCH - Deberia fallar sin token (401)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+
+{
+  "name": "No Autorizado"
+}
+
+### PATCH - Deberia fallar con rol user (403)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{viajeroToken}}
+
+{
+  "name": "No Deberia Actualizar"
+}
+
 ### Listar usuarios - Deberia fallar con rol user (403)
 GET {{baseUrl}}/v1/users
 Authorization: Bearer {{viajeroToken}}
@@ -588,6 +660,8 @@ GET {{baseUrl}}/v1/audit
 #   POST   /v1/messages/send            superadmin y admin (SMS via textBee)
 #   GET    /v1/text-messages/stats      superadmin y admin (uso mensual SMS TextBee)
 #   POST   /v1/user/create              superadmin y admin
+#   PATCH  /v1/users/{id}               superadmin a cualquiera; admin solo su propio perfil
+#                                      (cambia email/name, con unicidad de email)
 #   GET    /v1/users                    superadmin y admin
 #   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)
 #                                      si el target es un client, envia SMS best-effort con la clave

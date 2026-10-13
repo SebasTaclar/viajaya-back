@@ -83,6 +83,18 @@ export const canDeleteUser = (requester: AuthenticatedUser, targetRole: string, 
 };
 
 /**
+ * Verifica si el usuario puede actualizar datos (email/name) de un usuario target.
+ * - superadmin puede actualizar a cualquiera
+ * - admin solo puede actualizar su propio perfil
+ * - user no puede actualizar a nadie
+ */
+export const canUpdateUser = (requester: AuthenticatedUser, isSelf: boolean): boolean => {
+  if (isSuperAdmin(requester)) return true;
+  if (isAdmin(requester)) return isSelf;
+  return false;
+};
+
+/**
  * Verifica si el usuario puede crear un usuario con el rol especificado.
  * - superadmin puede crear cualquier rol
  * - admin solo puede crear users normales

@@ -4,7 +4,7 @@ import { PasswordUtils } from '../../shared/PasswordUtils';
 import { ValidationError, AuthenticationError, ConflictError, AuthorizationError, NotFoundError, AppError } from '../../shared/exceptions';
 import { IUserDataSource, UserWithClients } from '../../domain/interfaces/IUserDataSource';
 import { IClientDataSource } from '../../domain/interfaces/IClientDataSource';
-import { canChangePassword, canDeleteUser, canCreateUserWithRole } from '../../shared/roleMiddleware';
+import { canChangePassword, canDeleteUser, canCreateUserWithRole, canUpdateUser } from '../../shared/roleMiddleware';
 import { USER_ROLES } from '../../shared/UserRoles';
 import { AuthenticatedUser } from '../../shared/authMiddleware';
 import { AuditService } from './AuditService';
@@ -362,6 +362,92 @@ export class AuthService {
     await this.userDataSource.update(targetUserId, { password: hashedPassword });
 
     this.logger.logInfo(`Password changed successfully for user: ${targetUserId}`);
+  }
+
+  async updateUser(
+    targetUserId: string,
+    data: { email?: string; name?: string },
+    requester: AuthenticatedUser
+  ): Promise<UserInfo> {
+    this.logger.logInfo(`User update requested for user: ${targetUserId} by ${requester.email} (${requester.role})`);
+
+    const targetUser = await this.userDataSource.getById(targetUserId);
+    if (!targetUser) {
+      throw new NotFoundError('User not found');
+    }
+
+    const isSelf = requester.id.toString() === targetUserId;
+
+    if (!canUpdateUser(requester, isSelf)) {
+      this.logger.logWarning(
+        `Authorization denied: ${requester.email} (${requester.role}) cannot update user ${targetUserId} (${targetUser.role})`
+      );
+      throw new AuthorizationError('You do not have permission to update this user');
+    }
+
+    const { email, name } = data;
+
+    if (email === undefined && name === undefined) {
+      throw new ValidationError('At least one of email or name is required');
+    }
+
+    const updateData: { email?: string; name?: string } = {};
+
+    if (email !== undefined) {
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail) {
+        throw new ValidationError('email cannot be empty');
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        throw new ValidationError('Invalid email format');
+      }
+
+      if (trimmedEmail !== targetUser.email) {
+        const existingUser = await this.userDataSource.getByEmail(trimmedEmail);
+        if (existingUser && existingUser.id.toString() !== targetUserId) {
+          throw new ConflictError('A user with this email already exists');
+        }
+      }
+      updateData.email = trimmedEmail;
+    }
+
+    if (name !== undefined) {
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        throw new ValidationError('name cannot be empty');
+      }
+      updateData.name = trimmedName;
+    }
+
+    const updatedUser = await this.userDataSource.update(targetUserId, updateData);
+    if (!updatedUser) {
+      throw new NotFoundError('User not found');
+    }
+
+    await this.auditService.record({
+      action: AUDIT_ACTIONS.UPDATE,
+      tableName: AUDIT_TABLES.USERS,
+      entityId: updatedUser.id,
+      actor: {
+        userId: parseInt(requester.id, 10) || null,
+        username: requester.email ?? requester.name,
+      },
+      status: AUDIT_STATUS.SUCCESS,
+      data: {
+        before: auditSnapshot({ email: targetUser.email, name: targetUser.name }),
+        after: auditSnapshot({ email: updatedUser.email, name: updatedUser.name }),
+      },
+    });
+
+    this.logger.logInfo(`User updated successfully: ${targetUserId}`);
+
+    return {
+      id: updatedUser.id.toString(),
+      email: updatedUser.email,
+      name: updatedUser.name,
+      role: updatedUser.role,
+      membershipPaid: updatedUser.membershipPaid,
+    };
   }
 
   async notifyClientPassword(

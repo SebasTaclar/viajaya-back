@@ -20,6 +20,24 @@ const funcUsers = async (
     return ApiResponseBuilder.success(users, 'Users retrieved successfully');
   }
 
+  if (method === 'PATCH') {
+    const id = req.params?.id;
+    if (!id) {
+      return ApiResponseBuilder.badRequest('User ID is required');
+    }
+
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      return ApiResponseBuilder.badRequest('Invalid user ID');
+    }
+
+    const body = (req.body ?? {}) as { email?: string; name?: string };
+
+    const authService = getAuthService(log);
+    const updatedUser = await authService.updateUser(id, body, user);
+    return ApiResponseBuilder.success(updatedUser, 'User updated successfully');
+  }
+
   if (method === 'DELETE') {
     const id = req.params?.id;
     if (!id) {
