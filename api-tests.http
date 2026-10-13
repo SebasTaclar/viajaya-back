@@ -467,6 +467,19 @@ Authorization: Bearer {{viajeroToken}}
   "message": "No deberia enviarse"
 }
 
+### GET - Uso mensual de SMS (SUPERADMIN o ADMIN)
+# Devuelve solo el objeto "usage" de la suscripcion TextBee:
+# processedSmsToday, processedSmsLastMonth, monthlyLimit, monthlyRemaining, etc.
+GET {{baseUrl}}/v1/text-messages/stats
+Authorization: Bearer {{adminToken}}
+
+### GET - Uso mensual de SMS - Deberia fallar con rol user (403)
+GET {{baseUrl}}/v1/text-messages/stats
+Authorization: Bearer {{viajeroToken}}
+
+### GET - Uso mensual de SMS - Deberia fallar sin token (401)
+GET {{baseUrl}}/v1/text-messages/stats
+
 
 # ==========================================================
 # 8. EVENTS Y DOCUMENTS (se conservan)
@@ -573,6 +586,7 @@ GET {{baseUrl}}/v1/audit
 #   GET    /v1/recaudos                 user solo ve los suyos
 #   GET    /v1/dashboard                SOLO superadmin (admin -> 403)
 #   POST   /v1/messages/send            superadmin y admin (SMS via textBee)
+#   GET    /v1/text-messages/stats      superadmin y admin (uso mensual SMS TextBee)
 #   POST   /v1/user/create              superadmin y admin
 #   GET    /v1/users                    superadmin y admin
 #   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)

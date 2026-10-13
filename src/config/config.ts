@@ -12,4 +12,5 @@ export const env_config = {
   nodeEnv: process.env.NODE_ENV || 'production',
   textbeeApiKey: process.env.TEXTBEE_API_KEY || '',
   textbeeDeviceId: process.env.TEXTBEE_DEVICE_ID || '',
+  textbeeBaseUrl: process.env.TEXTBEE_BASE_URL || '',
 };
