@@ -1,13 +1,14 @@
 ﻿import { generateToken } from '../../shared/jwtHelper';
 import { Logger } from '../../shared/Logger';
 import { PasswordUtils } from '../../shared/PasswordUtils';
-import { ValidationError, AuthenticationError, ConflictError, AuthorizationError } from '../../shared/exceptions';
+import { ValidationError, AuthenticationError, ConflictError, AuthorizationError, NotFoundError, AppError } from '../../shared/exceptions';
 import { IUserDataSource, UserWithClients } from '../../domain/interfaces/IUserDataSource';
 import { IClientDataSource } from '../../domain/interfaces/IClientDataSource';
 import { canChangePassword, canDeleteUser, canCreateUserWithRole } from '../../shared/roleMiddleware';
 import { USER_ROLES } from '../../shared/UserRoles';
 import { AuthenticatedUser } from '../../shared/authMiddleware';
 import { AuditService } from './AuditService';
+import { PasswordNotifierService } from './PasswordNotifierService';
 import {
   AUDIT_ACTIONS,
   AUDIT_LOGIN_REASONS,
@@ -361,6 +362,73 @@ export class AuthService {
     await this.userDataSource.update(targetUserId, { password: hashedPassword });
 
     this.logger.logInfo(`Password changed successfully for user: ${targetUserId}`);
+  }
+
+  async notifyClientPassword(
+    clientId: number,
+    requester: AuthenticatedUser,
+    notifier: PasswordNotifierService
+  ): Promise<void> {
+    this.logger.logInfo(
+      `Notify client password requested for client ${clientId} by ${requester.email} (${requester.role})`
+    );
+
+    const client = await this.clientDataSource.getById(clientId);
+    if (!client) {
+      throw new NotFoundError(`Client with ID ${clientId} not found`);
+    }
+
+    if (!client.userId) {
+      throw new ValidationError('This client has no portal user');
+    }
+
+    const targetUser = await this.userDataSource.getById(client.userId.toString());
+    if (!targetUser) {
+      throw new ValidationError('Portal user not found for this client');
+    }
+
+    const isSelf = requester.id.toString() === client.userId.toString();
+
+    if (!canChangePassword(requester, targetUser.role, isSelf)) {
+      this.logger.logWarning(
+        `Authorization denied: ${requester.email} (${requester.role}) cannot change password for client ${clientId} (user role: ${targetUser.role})`
+      );
+      throw new AuthorizationError('You do not have permission to change this user\'s password');
+    }
+
+    if (!client.phone) {
+      throw new ValidationError('This client has no phone number registered');
+    }
+
+    const newPassword = PasswordUtils.generatePassword();
+    await this.changePassword(client.userId.toString(), newPassword, requester);
+
+    try {
+      await notifier.send(client.phone, targetUser.name || client.name, newPassword);
+    } catch (error) {
+      this.logger.logError(
+        `Password for user ${client.userId} was changed but SMS delivery failed for client ${clientId}`,
+        error
+      );
+      throw new AppError(
+        'Password was changed but the SMS could not be sent. Try again to generate and send a new password',
+        502
+      );
+    }
+
+    await this.auditService.record({
+      action: AUDIT_ACTIONS.UPDATE,
+      tableName: AUDIT_TABLES.USERS,
+      entityId: client.userId,
+      actor: {
+        userId: parseInt(requester.id, 10) || null,
+        username: requester.email ?? requester.name,
+      },
+      status: AUDIT_STATUS.SUCCESS,
+      data: { change: 'password notified via SMS', clientId },
+    });
+
+    this.logger.logInfo(`Password notified via SMS for client ${clientId} (user ${client.userId})`);
   }
 
   async deleteUser(id: string, requester: AuthenticatedUser): Promise<void> {

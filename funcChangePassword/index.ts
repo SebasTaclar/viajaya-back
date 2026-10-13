@@ -1,7 +1,7 @@
 import { Context, HttpRequest } from '@azure/functions';
 import { Logger } from '../src/shared/Logger';
 import { ApiResponseBuilder } from '../src/shared/ApiResponse';
-import { getAuthService } from '../src/shared/serviceProvider';
+import { getAuthService, getPasswordNotifierService } from '../src/shared/serviceProvider';
 import { withAuthenticatedApiHandler } from '../src/shared/apiHandler';
 import { withRole } from '../src/shared/roleMiddleware';
 import { AuthenticatedUser } from '../src/shared/authMiddleware';
@@ -27,6 +27,10 @@ const funcChangePassword = async (
 
     const authService = getAuthService(log);
     await authService.changePassword(userId.toString(), newPassword, user);
+
+    const notifier = getPasswordNotifierService(log);
+    await notifier.notifyIfClient(userId.toString(), newPassword);
+
     return ApiResponseBuilder.success(null, 'Password changed successfully');
   }
 

@@ -12,6 +12,7 @@ import { EventService } from '../application/services/EventService';
 import { DocumentService } from '../application/services/DocumentService';
 import { AuditService } from '../application/services/AuditService';
 import { PendingBalanceReminderService } from '../application/services/PendingBalanceReminderService';
+import { PasswordNotifierService } from '../application/services/PasswordNotifierService';
 import { MercadoPagoService } from '../infrastructure/services/MercadoPagoService';
 import { EmailService } from '../infrastructure/services/EmailService';
 import { CloudflareR2Service } from '../infrastructure/services/CloudflareR2Service';
@@ -171,6 +172,12 @@ export class ServiceProvider {
   static getTextBeeService(logger: Logger): TextBeeService {
     return new TextBeeService(logger);
   }
+
+  static getPasswordNotifierService(logger: Logger): PasswordNotifierService {
+    const textBeeService = this.getTextBeeService(logger);
+    const clientDataSource = this.getClientDataSource();
+    return new PasswordNotifierService(logger, textBeeService, clientDataSource);
+  }
 }
 
 export const getAuthService = (logger: Logger): AuthService => {
@@ -239,6 +246,10 @@ export const getDocumentService = (logger: Logger): DocumentService => {
 
 export const getTextBeeService = (logger: Logger): TextBeeService => {
   return ServiceProvider.getTextBeeService(logger);
+};
+
+export const getPasswordNotifierService = (logger: Logger): PasswordNotifierService => {
+  return ServiceProvider.getPasswordNotifierService(logger);
 };
 
 export const getAuditService = (logger: Logger): AuditService => {

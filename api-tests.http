@@ -122,6 +122,7 @@ GET {{baseUrl}}/v1/users
 Authorization: Bearer {{viajeroToken}}
 
 ### Cambiar password propio (ADMIN)
+# Nota: si el userId apunta a un client (portal viajero), se envia SMS best-effort con la clave nueva
 PATCH {{baseUrl}}/v1/user/change-password
 Content-Type: application/json
 Authorization: Bearer {{adminToken}}
@@ -242,6 +243,7 @@ Authorization: Bearer {{viajeroToken}}
 
 ### PATCH - Actualizar viajero (cambia password del portal)
 # Requiere: @adminToken
+# Nota: si el body incluye "password", se envia SMS best-effort con la clave nueva al celular del client
 PATCH {{baseUrl}}/v1/clients/1
 Content-Type: application/json
 Authorization: Bearer {{adminToken}}
@@ -297,6 +299,28 @@ Authorization: Bearer {{adminToken}}
 {
   "userId": 2
 }
+
+### POST - Notificar clave nueva por SMS a cliente (ADMIN)
+# Genera una clave aleatoria, la guarda hasheada y la envia por SMS al celular del client.
+# El client debe tener usuario del portal (userId) y phone registrado.
+POST {{baseUrl}}/v1/clients/1/notify-password
+Authorization: Bearer {{adminToken}}
+
+### POST - Notificar clave - Deberia fallar si el cliente no tiene usuario del portal (400)
+# Usar un clientId cuyo userId sea null
+POST {{baseUrl}}/v1/clients/3/notify-password
+Authorization: Bearer {{adminToken}}
+
+### POST - Notificar clave - Deberia fallar con clientId inexistente (404)
+POST {{baseUrl}}/v1/clients/9999/notify-password
+Authorization: Bearer {{adminToken}}
+
+### POST - Notificar clave - Deberia fallar sin token (401)
+POST {{baseUrl}}/v1/clients/1/notify-password
+
+### POST - Notificar clave - Deberia fallar con rol user (403)
+POST {{baseUrl}}/v1/clients/1/notify-password
+Authorization: Bearer {{viajeroToken}}
 
 
 # ==========================================================
@@ -542,6 +566,7 @@ GET {{baseUrl}}/v1/audit
 #   POST   /v1/login                    publico (email+password o cedula+password)
 #   GET    /v1/health/db                publico
 #   GET/POST/PATCH/DELETE /v1/clients   POST/PATCH/DELETE solo superadmin y admin
+#                                      PATCH con "password" envia SMS best-effort al client
 #   GET    /v1/clients                  user solo ve los suyos (con saldo)
 #   PATCH  /v1/clients/{id}/assign-user superadmin y admin
 #   GET/POST/PATCH/DELETE /v1/recaudos  POST/PATCH/DELETE solo superadmin y admin
@@ -551,6 +576,9 @@ GET {{baseUrl}}/v1/audit
 #   POST   /v1/user/create              superadmin y admin
 #   GET    /v1/users                    superadmin y admin
 #   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)
+#                                      si el target es un client, envia SMS best-effort con la clave
+#   POST   /v1/clients/{id}/notify-password  superadmin y admin: genera clave, la guarda y la
+#                                      envia por SMS al celular del client (SMS obligatorio)
 #   DELETE /v1/users/{id}               superadmin y admin (con restricciones)
 #   GET    /v1/audit                    SOLO superadmin (movimientos auditados)
 #

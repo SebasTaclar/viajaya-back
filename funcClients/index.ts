@@ -1,5 +1,5 @@
 import { Context, HttpRequest } from '@azure/functions';
-import { getClientService } from '../src/shared/serviceProvider';
+import { getClientService, getPasswordNotifierService } from '../src/shared/serviceProvider';
 import { ClientRequest, UpdateClientRequest } from '../src/application/services/ClientService';
 import { withAuthenticatedApiHandler } from '../src/shared/apiHandler';
 import { Logger } from '../src/shared/Logger';
@@ -116,6 +116,12 @@ const funcClients = async (
     };
 
     const client = await clientService.updateClient(id, updateRequest, actor);
+
+    if (typeof body.password === 'string' && body.password && client.userId) {
+      const notifier = getPasswordNotifierService(logger);
+      await notifier.notifyIfClient(client.userId, body.password);
+    }
+
     return ApiResponseBuilder.success(client, 'Client updated successfully');
   }
 

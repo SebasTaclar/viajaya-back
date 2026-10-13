@@ -1,4 +1,5 @@
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { ValidationError } from './exceptions';
 
 /**
@@ -43,5 +44,23 @@ export class PasswordUtils {
     if (password.length > 128) {
       throw new ValidationError('Password cannot exceed 128 characters');
     }
+  }
+
+  /**
+   * Genera una contraseña aleatoria segura (alfanumérica, sin caracteres ambiguos)
+   * @param length - Longitud de la contraseña (mínimo 6, por defecto 8)
+   * @returns La contraseña generada en texto plano
+   */
+  static generatePassword(length: number = 8): string {
+    const safeLength = Math.max(length, 6);
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const bytes = crypto.randomBytes(safeLength);
+
+    let password = '';
+    for (let i = 0; i < safeLength; i++) {
+      password += alphabet[bytes[i] % alphabet.length];
+    }
+
+    return password;
   }
 }
