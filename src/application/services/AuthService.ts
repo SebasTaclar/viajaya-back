@@ -4,7 +4,7 @@ import { PasswordUtils } from '../../shared/PasswordUtils';
 import { ValidationError, AuthenticationError, ConflictError, AuthorizationError, NotFoundError, AppError } from '../../shared/exceptions';
 import { IUserDataSource, UserWithClients } from '../../domain/interfaces/IUserDataSource';
 import { IClientDataSource } from '../../domain/interfaces/IClientDataSource';
-import { canChangePassword, canDeleteUser, canCreateUserWithRole, canUpdateUser } from '../../shared/roleMiddleware';
+import { canChangePassword, canDeleteUser, canCreateUserWithRole, canUpdateUser, isSuperAdmin } from '../../shared/roleMiddleware';
 import { USER_ROLES } from '../../shared/UserRoles';
 import { AuthenticatedUser } from '../../shared/authMiddleware';
 import { AuditService } from './AuditService';
@@ -366,7 +366,7 @@ export class AuthService {
 
   async updateUser(
     targetUserId: string,
-    data: { email?: string; name?: string },
+    data: { email?: string; name?: string; role?: string },
     requester: AuthenticatedUser
   ): Promise<UserInfo> {
     this.logger.logInfo(`User update requested for user: ${targetUserId} by ${requester.email} (${requester.role})`);
@@ -378,6 +378,25 @@ export class AuthService {
 
     const isSelf = requester.id.toString() === targetUserId;
 
+    const { email, name, role } = data;
+
+    if (role !== undefined) {
+      if (!isSuperAdmin(requester)) {
+        this.logger.logWarning(
+          `Authorization denied: ${requester.email} (${requester.role}) cannot change roles`
+        );
+        throw new AuthorizationError('Only superadmin can change user roles');
+      }
+
+      if (role !== USER_ROLES.SUPERADMIN && role !== USER_ROLES.ADMIN) {
+        throw new ValidationError('Invalid role. Only "superadmin" and "admin" roles can be assigned');
+      }
+
+      if (isSelf && role !== targetUser.role) {
+        throw new ValidationError('You cannot change your own role');
+      }
+    }
+
     if (!canUpdateUser(requester, isSelf)) {
       this.logger.logWarning(
         `Authorization denied: ${requester.email} (${requester.role}) cannot update user ${targetUserId} (${targetUser.role})`
@@ -385,13 +404,11 @@ export class AuthService {
       throw new AuthorizationError('You do not have permission to update this user');
     }
 
-    const { email, name } = data;
-
-    if (email === undefined && name === undefined) {
-      throw new ValidationError('At least one of email or name is required');
+    if (email === undefined && name === undefined && role === undefined) {
+      throw new ValidationError('At least one of email, name or role is required');
     }
 
-    const updateData: { email?: string; name?: string } = {};
+    const updateData: { email?: string; name?: string; role?: string } = {};
 
     if (email !== undefined) {
       const trimmedEmail = email.trim();
@@ -419,10 +436,19 @@ export class AuthService {
       updateData.name = trimmedName;
     }
 
+    if (role !== undefined && role !== targetUser.role) {
+      updateData.role = role;
+    }
+
     const updatedUser = await this.userDataSource.update(targetUserId, updateData);
     if (!updatedUser) {
       throw new NotFoundError('User not found');
     }
+
+    const changedFields: Record<string, unknown> = {};
+    if (updateData.email !== undefined) changedFields.email = { from: targetUser.email, to: updatedUser.email };
+    if (updateData.name !== undefined) changedFields.name = { from: targetUser.name, to: updatedUser.name };
+    if (updateData.role !== undefined) changedFields.role = { from: targetUser.role, to: updatedUser.role };
 
     await this.auditService.record({
       action: AUDIT_ACTIONS.UPDATE,
@@ -434,8 +460,9 @@ export class AuthService {
       },
       status: AUDIT_STATUS.SUCCESS,
       data: {
-        before: auditSnapshot({ email: targetUser.email, name: targetUser.name }),
-        after: auditSnapshot({ email: updatedUser.email, name: updatedUser.name }),
+        before: auditSnapshot({ email: targetUser.email, name: targetUser.name, role: targetUser.role }),
+        after: auditSnapshot({ email: updatedUser.email, name: updatedUser.name, role: updatedUser.role }),
+        changed: changedFields,
       },
     });
 

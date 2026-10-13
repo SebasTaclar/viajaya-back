@@ -189,6 +189,63 @@ Authorization: Bearer {{viajeroToken}}
   "name": "No Deberia Actualizar"
 }
 
+### PATCH - Cambiar rol de un usuario a admin (SOLO SUPERADMIN)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "role": "admin"
+}
+
+### PATCH - Promover usuario a superadmin (SOLO SUPERADMIN)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "role": "superadmin"
+}
+
+### PATCH - Asignar rol invalido - Deberia fallar (400)
+# Solo se permiten "superadmin" y "admin"
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "role": "user"
+}
+
+### PATCH - Admin intenta cambiar rol - Deberia fallar (403)
+PATCH {{baseUrl}}/v1/users/@adminUserId
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "role": "superadmin"
+}
+
+### PATCH - Cambiar el propio rol - Deberia fallar (400)
+PATCH {{baseUrl}}/v1/users/@superadminId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "role": "admin"
+}
+
+### PATCH - Actualizar email, name y rol en un solo request (SOLO SUPERADMIN)
+PATCH {{baseUrl}}/v1/users/@targetUserId
+Content-Type: application/json
+Authorization: Bearer {{superadminToken}}
+
+{
+  "email": "nuevo@ejemplo.com",
+  "name": "Nuevo Nombre",
+  "role": "admin"
+}
+
 ### Listar usuarios - Deberia fallar con rol user (403)
 GET {{baseUrl}}/v1/users
 Authorization: Bearer {{viajeroToken}}
@@ -662,6 +719,8 @@ GET {{baseUrl}}/v1/audit
 #   POST   /v1/user/create              superadmin y admin
 #   PATCH  /v1/users/{id}               superadmin a cualquiera; admin solo su propio perfil
 #                                      (cambia email/name, con unicidad de email)
+#                                      "role" solo lo cambia superadmin (superadmin|admin),
+#                                      nadie puede cambiarse su propio rol
 #   GET    /v1/users                    superadmin y admin
 #   PATCH  /v1/user/change-password     superadmin y admin (con restricciones)
 #                                      si el target es un client, envia SMS best-effort con la clave

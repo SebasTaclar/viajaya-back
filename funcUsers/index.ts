@@ -31,7 +31,7 @@ const funcUsers = async (
       return ApiResponseBuilder.badRequest('Invalid user ID');
     }
 
-    const body = (req.body ?? {}) as { email?: string; name?: string };
+    const body = (req.body ?? {}) as { email?: string; name?: string; role?: string };
 
     const authService = getAuthService(log);
     const updatedUser = await authService.updateUser(id, body, user);
